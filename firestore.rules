@@ -1,0 +1,28 @@
+rules_version = '2';
+
+// Sicherheitsregeln für Firestore.
+// Grundsatz: NUR eingeloggte Benutzer dürfen lesen und schreiben.
+// Da alle Benutzer Mitarbeiter der Praxis sind, teilen sie sich Produkte
+// und History.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Angemeldet = Mitarbeiter mit gültigem Konto.
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    match /products/{productId} {
+      allow read, write: if signedIn();
+    }
+
+    match /history/{entryId} {
+      allow read, write: if signedIn();
+    }
+
+    // Alles andere ist gesperrt.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
