@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import CompanyToggle from '../components/CompanyToggle'
+import ConfirmModal from '../components/ConfirmModal'
+import { useAuth } from '../context/AuthContext'
+import { isAdmin, ADMIN_EMAIL, companyLabel } from '../constants'
 import { subscribeHistory, clearHistory } from '../data'
 import { exportHistoryToExcel } from '../utils/excel'
 import { formatEuro } from '../utils/money'
@@ -8,12 +11,15 @@ import { formatDateTime, currentMonthKey, monthLabel } from '../utils/datetime'
 const COMPANY_STORAGE_KEY = 'azj.company'
 
 export default function History() {
+  const { user } = useAuth()
+  const admin = isAdmin(user)
   const [company, setCompany] = useState(
     () => localStorage.getItem(COMPANY_STORAGE_KEY) || 'OG'
   )
   const [entries, setEntries] = useState([])
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState('')
+  const [confirmOpen, setConfirmOpen] = useState(false)
 
   const month = currentMonthKey()
 
@@ -46,24 +52,22 @@ export default function History() {
     showToast(`Excel erstellt: ${file}`)
   }
 
-  async function handleReset() {
+  function openReset() {
     if (entries.length === 0) {
       showToast('Nichts zum Zurücksetzen.')
       return
     }
-    const ok = window.confirm(
-      `Zuerst wird eine Excel-Datei mit ${entries.length} Einträgen erstellt, ` +
-        `danach wird die History (${monthLabel(month)}) unwiderruflich gelöscht.\n\n` +
-        `Fortfahren?`
-    )
-    if (!ok) return
+    setConfirmOpen(true)
+  }
 
+  async function handleReset() {
     setBusy(true)
     try {
       // 1) Sicherung als Excel herunterladen …
       exportHistoryToExcel(entries, company, month)
       // 2) … dann in der Datenbank löschen.
       const removed = await clearHistory(company, month)
+      setConfirmOpen(false)
       showToast(`Excel gesichert und ${removed} Einträge gelöscht.`)
     } catch (err) {
       showToast('Fehler beim Zurücksetzen.')
@@ -99,20 +103,27 @@ export default function History() {
             <button className="btn btn-primary" onClick={handleExport}>
               Excel exportieren
             </button>
-            <button
-              className="btn btn-danger"
-              onClick={handleReset}
-              disabled={busy}
-            >
-              {busy ? 'Bitte warten…' : 'Monat abschließen & zurücksetzen'}
-            </button>
+            {admin && (
+              <button className="btn btn-danger" onClick={openReset}>
+                Monat abschließen & zurücksetzen
+              </button>
+            )}
           </div>
         </div>
 
         <p className="reset-note">
-          „Monat abschließen" erstellt zuerst automatisch eine Excel-Sicherung
-          und leert danach die History dieser Firma. Bitte die Datei gut
-          aufbewahren.
+          {admin ? (
+            <>
+              „Monat abschließen" erstellt zuerst automatisch eine
+              Excel-Sicherung und leert danach die History dieser Firma. Bitte
+              die Datei gut aufbewahren.
+            </>
+          ) : (
+            <>
+              Exportieren kann jeder. Das Zurücksetzen der History („Monat
+              abschließen") ist nur dem Admin-Account ({ADMIN_EMAIL}) möglich.
+            </>
+          )}
         </p>
       </section>
 
@@ -146,6 +157,31 @@ export default function History() {
           </table>
         )}
       </section>
+
+      <ConfirmModal
+        open={confirmOpen}
+        danger
+        title="Monat abschließen?"
+        confirmLabel="Exportieren & löschen"
+        cancelLabel="Abbrechen"
+        busy={busy}
+        onConfirm={handleReset}
+        onCancel={() => !busy && setConfirmOpen(false)}
+      >
+        <p>
+          Es wird zuerst automatisch eine <strong>Excel-Sicherung</strong> mit{' '}
+          <strong>{entries.length}</strong>{' '}
+          {entries.length === 1 ? 'Eintrag' : 'Einträgen'} erstellt.
+        </p>
+        <p>
+          Danach wird die History von{' '}
+          <strong>{companyLabel(company)}</strong> für{' '}
+          <strong>{monthLabel(month)}</strong> unwiderruflich gelöscht.
+        </p>
+        <p className="modal-warn">
+          Bitte die heruntergeladene Excel-Datei anschließend gut aufbewahren.
+        </p>
+      </ConfirmModal>
 
       {toast && <div className="toast">{toast}</div>}
     </div>
